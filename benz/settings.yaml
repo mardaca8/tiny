@@ -18,10 +18,10 @@ max_age_hours: 36
 # Run `python benz.py --brands` to see the exact names in the ENA data.
 # On Wednesdays, Viada uses the Super trečiadieniai price instead (no stacking).
 discounts_cents:
-  Viada: 0
+  Viada: 10
   Circle K: 0
   Orlen: 3.5
-  Neste: 0
+  Neste: 2.9
   Baltic Petroleum: 0
   Alauša: 0
   Emsi: 0
