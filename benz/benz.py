@@ -258,7 +258,7 @@ def scheduled_for_other_offset(now):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--settings", default="settings.yaml")
+    p.add_argument("--settings", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.yaml"))
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--brands", action="store_true")
     p.add_argument("--prices-file")
