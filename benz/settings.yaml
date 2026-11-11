@@ -11,7 +11,7 @@ municipalities:
 top: 10
 
 # Ignore stations whose last price report is older than this
-max_age_hours: 36
+max_age_hours: 24
 
 # Your discount per brand, in cents per litre. The brand name is matched as a
 # case-insensitive substring of the station's company / station name.
