@@ -75,8 +75,16 @@ def fetch_ena_prices():
 
 def fetch_viada_wednesday(today):
     """Return {fuel_type: price} if the Super trečiadieniai offer is valid today, else {}."""
-    page = requests.get(VIADA_WEDNESDAY_URL, headers=HEADERS, timeout=30).text
-    return parse_viada_wednesday(page, today)
+    r = requests.get(VIADA_WEDNESDAY_URL, headers=HEADERS, timeout=30)
+    prices = parse_viada_wednesday(r.text, today)
+    if not prices:
+        title = re.search(r"<title>(.*?)</title>", r.text, re.S)
+        print(
+            f"warning: no Viada prices for {today} (HTTP {r.status_code}, "
+            f"title {title.group(1).strip() if title else None!r})",
+            file=sys.stderr,
+        )
+    return prices
 
 
 def parse_viada_wednesday(page, today):
