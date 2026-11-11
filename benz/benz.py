@@ -43,6 +43,10 @@ VIADA_FUELS = {
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (benz fuel digest)"}
 
+# Seniūnija boundaries from vilnius21.lt (see build_boundaries.py); stations are placed by coordinates.
+BOUNDARIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seniunijos.json")
+OTHER_SENIUNIJA = "Kita"
+
 
 def load_settings(path):
     with open(path, encoding="utf-8") as f:
@@ -111,6 +115,29 @@ def brand_of(row, discounts):
     return None
 
 
+def load_boundaries(path=BOUNDARIES_FILE):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def inside(lat, lon, polygon):
+    """Ray casting: does the point fall inside a polygon of [lat, lon] points?"""
+    result = False
+    for (lat1, lon1), (lat2, lon2) in zip(polygon, polygon[1:] + polygon[:1]):
+        if (lat1 > lat) != (lat2 > lat) and lon < lon1 + (lat - lat1) * (lon2 - lon1) / (lat2 - lat1):
+            result = not result
+    return result
+
+
+def seniunija_of(row, boundaries):
+    """Name of the seniūnija containing the station's coordinates, or None."""
+    try:
+        lat, lon = float(row["latitude"]), float(row["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return next((name for name, polygon in boundaries.items() if inside(lat, lon, polygon)), None)
+
+
 def in_municipalities(row, municipalities):
     m = (row.get("municipality") or "").lower()
     return any(x.lower() in m for x in municipalities)
@@ -152,10 +179,10 @@ def cheapest(rows, settings, fuel, now, viada_prices):
             final = price - cents / 100
             if cents:
                 note = f"−{cents:g} ct"
-        results.append({"row": row, "base": price, "final": round(final, 3), "note": note})
+        results.append({"row": row, "brand": brand, "base": price, "final": round(final, 3), "note": note})
 
     results.sort(key=lambda r: r["final"])
-    return results[: settings.get("top", 5)]
+    return results[: settings.get("top", 10)]
 
 
 def maps_link(row):
@@ -166,7 +193,18 @@ def maps_link(row):
     return f"https://www.google.com/maps/search/?api=1&query={q}"
 
 
-def format_message(by_fuel, today, is_wednesday, viada_found):
+def group_results(results, boundaries):
+    """{seniūnija: {brand: [(rank, result)]}}, groups ordered by their cheapest station."""
+    groups = {}
+    for rank, r in enumerate(results, 1):
+        row = r["row"]
+        seniunija = seniunija_of(row, boundaries) or OTHER_SENIUNIJA
+        brand = r["brand"] or row.get("gas_station_name") or row.get("company_name") or "?"
+        groups.setdefault(seniunija, {}).setdefault(brand, []).append((rank, r))
+    return groups
+
+
+def format_message(by_fuel, today, is_wednesday, viada_found, boundaries, notes=None):
     lines = [f"⛽ <b>Pigiausi degalai Vilniuje</b> — {today:%Y-%m-%d}"]
     if is_wednesday:
         lines.append("Viada Super trečiadieniai: " + ("įskaičiuota" if viada_found else "nerasta"))
@@ -174,14 +212,18 @@ def format_message(by_fuel, today, is_wednesday, viada_found):
         lines.append(f"\n<b>{FUEL_LABELS.get(fuel, fuel)}</b>")
         if not results:
             lines.append("Nėra duomenų")
-        for i, r in enumerate(results, 1):
-            row = r["row"]
-            name = html.escape(row.get("gas_station_name") or row.get("company_name") or "?")
-            addr = html.escape(row.get("address") or "")
-            price = f"<b>{r['final']:.3f} €</b>"
-            if r["note"]:
-                price += f" ({html.escape(r['note'])}, be nuol. {r['base']:.3f})"
-            lines.append(f'{i}. {price}\n    <a href="{maps_link(row)}">{name}</a>, {addr}')
+        for seniunija, brands in group_results(results, boundaries).items():
+            lines.append(f"\n📍 <b>{html.escape(seniunija)}</b>")
+            for brand, stations in brands.items():
+                note = str((notes or {}).get(brand) or "").strip()
+                lines.append(f"  <i>{html.escape(brand)}</i>" + (f" — {html.escape(note)}" if note else ""))
+                for rank, r in stations:
+                    row = r["row"]
+                    addr = html.escape(re.sub(r"^Vilnius,\s*|,\s*\d{5}$", "", (row.get("address") or "").strip()))
+                    price = f"<b>{r['final']:.3f} €</b>"
+                    if r["note"]:
+                        price += f" ({html.escape(r['note'])}, be nuol. {r['base']:.3f})"
+                    lines.append(f'  {rank}. {price} — <a href="{maps_link(row)}">{addr or "žemėlapis"}</a>')
     return "\n".join(lines)
 
 
@@ -251,7 +293,7 @@ def build_message(settings, now, prices_file=None):
 
     fuels = settings.get("fuels") or ["benzinas_95"]
     by_fuel = {fuel: cheapest(rows, settings, fuel, now, viada_prices) for fuel in fuels}
-    return format_message(by_fuel, today, is_wednesday, bool(viada_prices))
+    return format_message(by_fuel, today, is_wednesday, bool(viada_prices), load_boundaries(), settings.get("notes"))
 
 
 def scheduled_for_other_offset(now):

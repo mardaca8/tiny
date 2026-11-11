@@ -8,7 +8,7 @@ municipalities:
   - Vilniaus m
 
 # How many stations to list per fuel
-top: 5
+top: 10
 
 # Ignore stations whose last price report is older than this
 max_age_hours: 36
@@ -29,3 +29,18 @@ discounts_cents:
   Jozita: 0
   Saurida: 0
   Stateta: 0
+
+# Your note per brand, shown next to the brand in the message. Leave blank ("") for none.
+# Same brand names as in discounts_cents.
+notes:
+  Viada: "programele"
+  Circle K: ""
+  Orlen: "perks.lt"
+  Neste: "programele, rimi kortele"
+  Baltic Petroleum: ""
+  Alauša: ""
+  Emsi: ""
+  Skulas: ""
+  Jozita: ""
+  Saurida: ""
+  Stateta: ""
