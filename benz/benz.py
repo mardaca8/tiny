@@ -8,6 +8,7 @@ Usage:
   python benz.py --dry-run       # print the message instead of sending
   python benz.py --brands        # list brands seen in the configured municipalities
   python benz.py --prices-file x.json   # use a saved API response instead of the API
+  python benz.py --listen        # keep running and answer /topliak in the Telegram chat
 """
 
 import argparse
@@ -16,6 +17,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -175,15 +177,73 @@ def format_message(by_fuel, today, is_wednesday, viada_found):
     return "\n".join(lines)
 
 
-def send_telegram(text):
+def telegram(method, **params):
     token = os.environ["TELEGRAM_BOT_TOKEN"]
-    chat_id = os.environ["TELEGRAM_CHAT_ID"]
     r = requests.post(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        json={"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True},
-        timeout=30,
+        f"https://api.telegram.org/bot{token}/{method}",
+        json=params,
+        timeout=params.get("timeout", 0) + 30,
     )
     r.raise_for_status()
+    return r.json()["result"]
+
+
+def send_telegram(text):
+    telegram(
+        "sendMessage",
+        chat_id=os.environ["TELEGRAM_CHAT_ID"],
+        text=text,
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
+def is_command(message, command):
+    """True for "/topliak" or "/topliak@SomeBot" sent in the configured chat."""
+    if str(message.get("chat", {}).get("id")) != str(os.environ["TELEGRAM_CHAT_ID"]):
+        return False
+    words = (message.get("text") or "").split()
+    return bool(words) and words[0].split("@")[0].lower() == command
+
+
+def listen(settings, prices_file=None):
+    """Long-poll Telegram and send the digest whenever /topliak arrives."""
+    telegram("setMyCommands", commands=[{"command": "topliak", "description": "Pigiausi degalai dabar"}])
+    print("Listening for /topliak (Ctrl+C to stop)...")
+    offset = None
+    while True:
+        try:
+            updates = telegram("getUpdates", offset=offset, timeout=50, allowed_updates=["message"])
+            for update in updates:
+                offset = update["update_id"] + 1
+                if is_command(update.get("message") or {}, "/topliak"):
+                    send_telegram(build_message(settings, datetime.now(TZ), prices_file))
+        except requests.RequestException as e:
+            print(f"warning: Telegram request failed ({e}), retrying", file=sys.stderr)
+            time.sleep(5)
+
+
+def load_rows(prices_file):
+    if prices_file:
+        with open(prices_file, encoding="utf-8") as f:
+            return json.load(f).get("data", [])
+    return fetch_ena_prices()
+
+
+def build_message(settings, now, prices_file=None):
+    rows = load_rows(prices_file)
+    today = now.date()
+    is_wednesday = today.weekday() == 2
+    viada_prices = {}
+    if is_wednesday:
+        try:
+            viada_prices = fetch_viada_wednesday(today)
+        except requests.RequestException as e:
+            print(f"warning: Viada page failed ({e})", file=sys.stderr)
+
+    fuels = settings.get("fuels") or ["benzinas_95"]
+    by_fuel = {fuel: cheapest(rows, settings, fuel, now, viada_prices) for fuel in fuels}
+    return format_message(by_fuel, today, is_wednesday, bool(viada_prices))
 
 
 def scheduled_for_other_offset(now):
@@ -202,38 +262,30 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--brands", action="store_true")
     p.add_argument("--prices-file")
+    p.add_argument("--listen", action="store_true")
     args = p.parse_args()
+
+    settings = load_settings(args.settings)
+    if args.listen:
+        try:
+            listen(settings, args.prices_file)
+        except KeyboardInterrupt:
+            pass
+        return
 
     now = datetime.now(TZ)
     if scheduled_for_other_offset(now):
         print("Not the 12:00 Vilnius run for the current UTC offset, skipping.")
         return
 
-    settings = load_settings(args.settings)
-    if args.prices_file:
-        with open(args.prices_file, encoding="utf-8") as f:
-            rows = json.load(f).get("data", [])
-    else:
-        rows = fetch_ena_prices()
-
     if args.brands:
         municipalities = settings.get("municipalities") or ["Vilniaus m"]
+        rows = load_rows(args.prices_file)
         names = sorted({r.get("company_name") or "?" for r in rows if in_municipalities(r, municipalities)})
         print("\n".join(names))
         return
 
-    today = now.date()
-    is_wednesday = today.weekday() == 2
-    viada_prices = {}
-    if is_wednesday:
-        try:
-            viada_prices = fetch_viada_wednesday(today)
-        except requests.RequestException as e:
-            print(f"warning: Viada page failed ({e})", file=sys.stderr)
-
-    fuels = settings.get("fuels") or ["benzinas_95"]
-    by_fuel = {fuel: cheapest(rows, settings, fuel, now, viada_prices) for fuel in fuels}
-    message = format_message(by_fuel, today, is_wednesday, bool(viada_prices))
+    message = build_message(settings, now, args.prices_file)
 
     if args.dry_run:
         print(message)
