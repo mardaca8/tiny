@@ -2,9 +2,10 @@ name: Daily fuel prices
 
 on:
   schedule:
-    # 12:00 Vilnius = 09:00 UTC in summer, 10:00 UTC in winter; the script skips the wrong one.
-    - cron: "0 9 * * *"
-    - cron: "0 10 * * *"
+    # 11:45 Vilnius = 08:45 UTC in summer, 09:45 UTC in winter; the script skips the wrong one.
+    # GitHub often starts scheduled runs late (and may drop them on the hour), so aim before 12:00.
+    - cron: "45 8 * * *"
+    - cron: "45 9 * * *"
   workflow_dispatch:
 
 jobs:

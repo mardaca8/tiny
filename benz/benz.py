@@ -25,7 +25,7 @@ import requests
 import yaml
 
 TZ = ZoneInfo("Europe/Vilnius")
-SEND_HOUR = 12
+SEND_HOUR = 11  # local hour of the cron in daily.yml (11:45, to arrive around 12:00)
 
 ENA_SITE = "https://degalukainos.ena.lt/"
 ENA_API = "https://api-degalukainos.ena.lt/api/v1/read/prices/latest"
@@ -210,7 +210,7 @@ def format_station(r, notes):
     addr = html.escape(re.sub(r"^Vilnius,\s*|,\s*\d{5}$", "", (row.get("address") or "").strip()))
     line = f"<i>{html.escape(brand)}</i>"
     if r["note"]:
-        line += f" ({html.escape(r['note'])}, be nuol. {r['base']:.3f})"
+        line += f" ({html.escape(r['note'])}, {r['base']:.3f})"
     note = str((notes or {}).get(r["brand"]) or "").strip()
     if note:
         line += f" · {html.escape(note)}"
@@ -333,8 +333,8 @@ def build_message(settings, now, prices_file=None, last_prices=None):
 
 
 def scheduled_for_other_offset(now):
-    """GitHub cron is UTC, so the workflow fires at both 09:00 and 10:00 UTC.
-    Only the run whose cron hour equals 12:00 Vilnius time today should send."""
+    """GitHub cron is UTC, so the workflow fires for both summer and winter time.
+    Only the run whose cron hour equals SEND_HOUR Vilnius time today should send."""
     schedule = os.environ.get("SCHEDULE", "").split()
     if len(schedule) < 2 or not schedule[1].isdigit():
         return False  # manual run: always send
