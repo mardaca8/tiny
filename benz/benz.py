@@ -44,6 +44,8 @@ VIADA_FUELS = {
 HEADERS = {"User-Agent": "Mozilla/5.0 (benz fuel digest)"}
 
 # Seniūnija boundaries from vilnius21.lt (see build_boundaries.py); stations are placed by coordinates.
+# Cheapest price per fuel from the last sent message, to show the change in the next one.
+LAST_PRICES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "last_prices.json")
 BOUNDARIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seniunijos.json")
 OTHER_SENIUNIJA = "Kita"
 
@@ -215,18 +217,42 @@ def format_station(r, notes):
     return f'    • {line} — <a href="{maps_link(row)}">{addr or "žemėlapis"}</a>'
 
 
-def format_message(by_fuel, today, is_wednesday, viada_found, boundaries, notes=None):
+def load_last_prices(path=LAST_PRICES_FILE):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+def save_last_prices(prices, path=LAST_PRICES_FILE):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(prices, f)
+
+
+def price_change(current, previous):
+    """" (+3.5 ct)" / " (−1.2 ct)" / " (±0 ct)" against the last message, or "" if unknown."""
+    if current is None or previous is None:
+        return ""
+    cents = round((current - previous) * 100, 1)
+    if not cents:
+        return " (±0 ct)"
+    return f" ({cents:+g} ct)".replace("-", "−")
+
+
+def format_message(by_fuel, today, is_wednesday, viada_found, boundaries, notes=None, last_prices=None):
     lines = [f"⛽ <b>Pigiausi degalai Vilniuje</b> — {today:%Y-%m-%d}"]
     if is_wednesday:
         lines.append("Viada Super trečiadieniai: " + ("įskaičiuota" if viada_found else "nerasta"))
     for fuel, results in by_fuel.items():
-        lines.append(f"\n<b>{FUEL_LABELS.get(fuel, fuel)}</b>")
+        change = price_change(results[0]["final"] if results else None, (last_prices or {}).get(fuel))
+        lines.append(f"\n<b>{FUEL_LABELS.get(fuel, fuel)}</b>{change}")
         if not results:
             lines.append("Nėra duomenų")
         for price, by_seniunija in group_results(results, boundaries).items():
             lines.append(f"\n💶 <b>{price:.3f} €</b>")
             for seniunija, stations in by_seniunija.items():
-                lines.append(f"  📍 {html.escape(seniunija)}")
+                lines.append(f"  📍 <b>{html.escape(seniunija)}</b>")
                 lines += [format_station(r, notes) for r in stations]
     return "\n".join(lines)
 
@@ -271,7 +297,9 @@ def listen(settings, prices_file=None):
             for update in updates:
                 offset = update["update_id"] + 1
                 if is_command(update.get("message") or {}, "/topliak"):
-                    send_telegram(build_message(settings, datetime.now(TZ), prices_file))
+                    message, prices = build_message(settings, datetime.now(TZ), prices_file, load_last_prices())
+                    send_telegram(message)
+                    save_last_prices(prices)
         except requests.RequestException as e:
             print(f"warning: Telegram request failed ({e}), retrying", file=sys.stderr)
             time.sleep(5)
@@ -284,7 +312,8 @@ def load_rows(prices_file):
     return fetch_ena_prices()
 
 
-def build_message(settings, now, prices_file=None):
+def build_message(settings, now, prices_file=None, last_prices=None):
+    """Return the message and {fuel: cheapest final price} to remember for next time."""
     rows = load_rows(prices_file)
     today = now.date()
     is_wednesday = today.weekday() == 2
@@ -297,7 +326,10 @@ def build_message(settings, now, prices_file=None):
 
     fuels = settings.get("fuels") or ["benzinas_95"]
     by_fuel = {fuel: cheapest(rows, settings, fuel, now, viada_prices) for fuel in fuels}
-    return format_message(by_fuel, today, is_wednesday, bool(viada_prices), load_boundaries(), settings.get("notes"))
+    message = format_message(
+        by_fuel, today, is_wednesday, bool(viada_prices), load_boundaries(), settings.get("notes"), last_prices
+    )
+    return message, {fuel: results[0]["final"] for fuel, results in by_fuel.items() if results}
 
 
 def scheduled_for_other_offset(now):
@@ -339,12 +371,13 @@ def main():
         print("\n".join(names))
         return
 
-    message = build_message(settings, now, args.prices_file)
+    message, prices = build_message(settings, now, args.prices_file, load_last_prices())
 
     if args.dry_run:
         print(message)
     else:
         send_telegram(message)
+        save_last_prices(prices)
 
 
 if __name__ == "__main__":
