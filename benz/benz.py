@@ -194,14 +194,25 @@ def maps_link(row):
 
 
 def group_results(results, boundaries):
-    """{seniūnija: {brand: [(rank, result)]}}, groups ordered by their cheapest station."""
+    """{final price: {seniūnija: [result]}}, cheapest price first, seniūnijos alphabetical."""
     groups = {}
-    for rank, r in enumerate(results, 1):
-        row = r["row"]
-        seniunija = seniunija_of(row, boundaries) or OTHER_SENIUNIJA
-        brand = r["brand"] or row.get("gas_station_name") or row.get("company_name") or "?"
-        groups.setdefault(seniunija, {}).setdefault(brand, []).append((rank, r))
-    return groups
+    for r in results:
+        seniunija = seniunija_of(r["row"], boundaries) or OTHER_SENIUNIJA
+        groups.setdefault(r["final"], {}).setdefault(seniunija, []).append(r)
+    return {price: dict(sorted(by_sen.items())) for price, by_sen in sorted(groups.items())}
+
+
+def format_station(r, notes):
+    row = r["row"]
+    brand = r["brand"] or row.get("gas_station_name") or row.get("company_name") or "?"
+    addr = html.escape(re.sub(r"^Vilnius,\s*|,\s*\d{5}$", "", (row.get("address") or "").strip()))
+    line = f"<i>{html.escape(brand)}</i>"
+    if r["note"]:
+        line += f" ({html.escape(r['note'])}, be nuol. {r['base']:.3f})"
+    note = str((notes or {}).get(r["brand"]) or "").strip()
+    if note:
+        line += f" · {html.escape(note)}"
+    return f'    • {line} — <a href="{maps_link(row)}">{addr or "žemėlapis"}</a>'
 
 
 def format_message(by_fuel, today, is_wednesday, viada_found, boundaries, notes=None):
@@ -212,18 +223,11 @@ def format_message(by_fuel, today, is_wednesday, viada_found, boundaries, notes=
         lines.append(f"\n<b>{FUEL_LABELS.get(fuel, fuel)}</b>")
         if not results:
             lines.append("Nėra duomenų")
-        for seniunija, brands in group_results(results, boundaries).items():
-            lines.append(f"\n📍 <b>{html.escape(seniunija)}</b>")
-            for brand, stations in brands.items():
-                note = str((notes or {}).get(brand) or "").strip()
-                lines.append(f"  <i>{html.escape(brand)}</i>" + (f" — {html.escape(note)}" if note else ""))
-                for rank, r in stations:
-                    row = r["row"]
-                    addr = html.escape(re.sub(r"^Vilnius,\s*|,\s*\d{5}$", "", (row.get("address") or "").strip()))
-                    price = f"<b>{r['final']:.3f} €</b>"
-                    if r["note"]:
-                        price += f" ({html.escape(r['note'])}, be nuol. {r['base']:.3f})"
-                    lines.append(f'  {rank}. {price} — <a href="{maps_link(row)}">{addr or "žemėlapis"}</a>')
+        for price, by_seniunija in group_results(results, boundaries).items():
+            lines.append(f"\n💶 <b>{price:.3f} €</b>")
+            for seniunija, stations in by_seniunija.items():
+                lines.append(f"  📍 {html.escape(seniunija)}")
+                lines += [format_station(r, notes) for r in stations]
     return "\n".join(lines)
 
 
