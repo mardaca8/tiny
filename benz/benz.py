@@ -42,6 +42,7 @@ VIADA_FUELS = {
 }
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (benz fuel digest)"}
+SUPER_WEDNESDAY = "Super trečiadienis"
 
 # Seniūnija boundaries from vilnius21.lt (see build_boundaries.py); stations are placed by coordinates.
 # Cheapest price per fuel from the last sent message, to show the change in the next one.
@@ -172,10 +173,12 @@ def cheapest(rows, settings, fuel, now, viada_prices):
             continue
         brand = brand_of(row, discounts)
         note = ""
-        if brand and brand.lower() == "viada" and fuel in viada_prices:
+        if brand and brand.lower() == "viada" and now.weekday() == 2:
             # Super trečiadieniai prices replace the card discount ("nuolaidos nesumuojamos").
-            final = viada_prices[fuel]
-            note = "Super trečiadienis"
+            # If the offer page couldn't be read, show the regular price, still without the discount.
+            final = viada_prices.get(fuel, price)
+            if fuel in viada_prices:
+                note = SUPER_WEDNESDAY
         else:
             cents = (discounts.get(brand) or 0) if brand else 0
             final = price - cents / 100
@@ -210,7 +213,9 @@ def format_station(r, notes):
     addr = html.escape(re.sub(r"^Vilnius,\s*|,\s*\d{5}$", "", (row.get("address") or "").strip()))
     line = f"<i>{html.escape(brand)}</i>"
     if r["note"]:
-        line += f" ({html.escape(r['note'])}, {r['base']:.3f})"
+        # A discount shows the regular price it was taken from; the Viada offer price stands alone.
+        base = "" if r["note"] == SUPER_WEDNESDAY else f", {r['base']:.3f}"
+        line += f" ({html.escape(r['note'])}{base})"
     note = str((notes or {}).get(r["brand"]) or "").strip()
     if note:
         line += f" · {html.escape(note)}"
