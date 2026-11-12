@@ -253,8 +253,12 @@ def format_message(by_fuel, today, is_wednesday, viada_found, boundaries, notes=
         lines.append(f"\n<b>{FUEL_LABELS.get(fuel, fuel)}</b>{change}")
         if not results:
             lines.append("Nėra duomenų")
-        for price, by_seniunija in group_results(results, boundaries).items():
-            lines.append(f"\n💶 <b>{price:.3f} €</b>")
+        groups = group_results(results, boundaries)
+        lowest = next(iter(groups), None)
+        for price, by_seniunija in groups.items():
+            # Groups above the cheapest show how much more they cost, e.g. "(+0.5 ct) 💶 1.650 €".
+            extra = price_change(price, lowest).strip() + " " if price != lowest else ""
+            lines.append(f"\n{extra}💶 <b>{price:.3f} €</b>")
             for seniunija, stations in by_seniunija.items():
                 lines.append(f"  📍 <b>{html.escape(seniunija)}</b>")
                 lines += [format_station(r, notes) for r in stations]
