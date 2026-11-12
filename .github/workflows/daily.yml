@@ -1,11 +1,8 @@
 name: Daily fuel prices
 
 on:
-  schedule:
-    # 11:45 Vilnius = 08:45 UTC in summer, 09:45 UTC in winter; the script skips the wrong one.
-    # GitHub often starts scheduled runs late (and may drop them on the hour), so aim before 12:00.
-    - cron: "45 8 * * *"
-    - cron: "45 9 * * *"
+  # Started every day at 12:00 Vilnius by cron-job.org through the GitHub API
+  # (GitHub's own schedule ran late or not at all). Can also be run by hand.
   workflow_dispatch:
 
 jobs:
@@ -26,7 +23,6 @@ jobs:
           restore-keys: last-prices-
       - run: python benz/benz.py
         env:
-          SCHEDULE: ${{ github.event.schedule }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       - uses: actions/cache/save@v5

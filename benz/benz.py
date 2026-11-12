@@ -25,7 +25,6 @@ import requests
 import yaml
 
 TZ = ZoneInfo("Europe/Vilnius")
-SEND_HOUR = 11  # local hour of the cron in daily.yml (11:45, to arrive around 12:00)
 
 ENA_SITE = "https://degalukainos.ena.lt/"
 ENA_API = "https://api-degalukainos.ena.lt/api/v1/read/prices/latest"
@@ -337,16 +336,6 @@ def build_message(settings, now, prices_file=None, last_prices=None):
     return message, {fuel: results[0]["final"] for fuel, results in by_fuel.items() if results}
 
 
-def scheduled_for_other_offset(now):
-    """GitHub cron is UTC, so the workflow fires for both summer and winter time.
-    Only the run whose cron hour equals SEND_HOUR Vilnius time today should send."""
-    schedule = os.environ.get("SCHEDULE", "").split()
-    if len(schedule) < 2 or not schedule[1].isdigit():
-        return False  # manual run: always send
-    expected_utc_hour = (SEND_HOUR - int(now.utcoffset().total_seconds() // 3600)) % 24
-    return int(schedule[1]) != expected_utc_hour
-
-
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--settings", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.yaml"))
@@ -365,9 +354,6 @@ def main():
         return
 
     now = datetime.now(TZ)
-    if scheduled_for_other_offset(now):
-        print("Not the 12:00 Vilnius run for the current UTC offset, skipping.")
-        return
 
     if args.brands:
         municipalities = settings.get("municipalities") or ["Vilniaus m"]
